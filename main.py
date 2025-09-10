@@ -1,54 +1,65 @@
 import os
 import requests
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
-API_BASE = os.getenv("API_BASE", "https://youtube-download-api-production-4bd1.up.railway.app")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_BASE = "https://youtube-download-api.matheusishiyama.repl.co"
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Send me a YouTube link, I'll fetch MP3 for you!")
+def start(update, context):
+    update.message.reply_text(
+        "👋 Hello! Send me a YouTube link and choose format:\n"
+        "🎶 Type /mp3 <url> for audio\n"
+        "🎥 Type /mp4 <url> for video"
+    )
 
-def get_download_link(url):
-    r = requests.get(f"{API_BASE}/mp3", params={"url": url})
-    if r.status_code == 200:
-        return r.json().get("url")
-    return None
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text.strip()
-    if not url.startswith("http"):
-        await update.message.reply_text("Please send a valid YouTube link 🔗")
-        return
-
-    await update.message.reply_text("⏳ Downloading, please wait...")
+def download_mp3(update, context):
+    if not context.args:
+        return update.message.reply_text("⚠️ Usage: /mp3 <YouTube URL>")
+    
+    url = context.args[0]
     try:
-        dl_url = get_download_link(url)
-        if not dl_url:
-            await update.message.reply_text("❌ Failed to get file link.")
-            return
+        response = requests.get(f"{API_BASE}/mp3", params={"url": url}, stream=True)
 
-        # download file
-        resp = requests.get(dl_url, stream=True)
-        filename = "temp.mp3"
-        with open(filename, "wb") as f:
-            for chunk in resp.iter_content(1024 * 1024):
-                f.write(chunk)
-
-        # send audio
-        with open(filename, "rb") as f:
-            await update.message.reply_audio(audio=f, title="Downloaded Song 🎵")
-
-        os.remove(filename)
-
+        if response.status_code == 200:
+            update.message.reply_audio(
+                audio=response.content,
+                filename="song.mp3",
+                title="Downloaded MP3"
+            )
+        else:
+            update.message.reply_text("❌ Failed to get MP3. Please check the link.")
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Error: {e}")
+        update.message.reply_text(f"⚠️ Error: {str(e)}")
+
+def download_mp4(update, context):
+    if not context.args:
+        return update.message.reply_text("⚠️ Usage: /mp4 <YouTube URL>")
+    
+    url = context.args[0]
+    try:
+        response = requests.get(f"{API_BASE}/mp4", params={"url": url}, stream=True)
+
+        if response.status_code == 200:
+            update.message.reply_video(
+                video=response.content,
+                filename="video.mp4",
+                supports_streaming=True
+            )
+        else:
+            update.message.reply_text("❌ Failed to get MP4. Please check the link.")
+    except Exception as e:
+        update.message.reply_text(f"⚠️ Error: {str(e)}")
 
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.run_polling()
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("mp3", download_mp3))
+    dp.add_handler(CommandHandler("mp4", download_mp4))
+
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == "__main__":
     main()
